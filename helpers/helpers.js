@@ -20,8 +20,14 @@ class Helper {
 
             const response = this.#timetableRW(html, refactTime);
 
+            if (response.length > 0) {
+                console.log('Есть билеты на: ', ...response);
+            } else {
+                console.log('Нету билетов');
+            }
+
             callback(response);
-        }, 1_000 * 60 * 5);
+        }, 1_000 * 60 * 1);
 
         return intervalId;
     }
