@@ -11,16 +11,16 @@ class Helper {
     }
 
     getDataRW(route, date, time, callback) {
-        this.#reqiestGetDataRW(route, date, time, callback);
-
+        this.#fetchDataRW(route, date, time, callback);
+        
         const intervalId = setInterval(async () => {
-            this.#reqiestGetDataRW(route, date, time, callback);
-        }, 1_000 * 60 * 1);
+            this.#fetchDataRW(route, date, time, callback);
+        }, 1_000 * 60 * 5);
 
         return intervalId;
     }
 
-    async #reqiestGetDataRW(route, date, time, callback) {
+    async #fetchDataRW(route, date, time, callback) {
         const html = await this.#getRW(route, date);
 
         const refactTime = time.map((time) => {
@@ -28,16 +28,6 @@ class Helper {
         });
 
         const response = this.#timetableRW(html, refactTime);
-
-        if (response.length > 0) {
-            console.log('Есть билеты на:', ...response);
-        } else {
-            console.log('Нету билетов');
-        }
-
-        try {
-            await axios.post('http:/google.com');
-        } catch {}
 
         callback(response);
     }
