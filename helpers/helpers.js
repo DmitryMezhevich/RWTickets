@@ -11,25 +11,35 @@ class Helper {
     }
 
     getDataRW(route, date, time, callback) {
+        this.#reqiestGetDataRW(route, date, time, callback);
+
         const intervalId = setInterval(async () => {
-            const html = await this.#getRW(route, date);
-
-            const refactTime = time.map((time) => {
-                return time.split('-')[0].trim();
-            });
-
-            const response = this.#timetableRW(html, refactTime);
-
-            if (response.length > 0) {
-                console.log('Есть билеты на: ', ...response);
-            } else {
-                console.log('Нету билетов');
-            }
-
-            callback(response);
+            this.#reqiestGetDataRW(route, date, time, callback);
         }, 1_000 * 60 * 1);
 
         return intervalId;
+    }
+
+    async #reqiestGetDataRW(route, date, time, callback) {
+        const html = await this.#getRW(route, date);
+
+        const refactTime = time.map((time) => {
+            return time.split('-')[0].trim();
+        });
+
+        const response = this.#timetableRW(html, refactTime);
+
+        if (response.length > 0) {
+            console.log('Есть билеты на:', ...response);
+        } else {
+            console.log('Нету билетов');
+        }
+
+        try {
+            await axios.post('http:/google.com');
+        } catch {}
+
+        callback(response);
     }
 
     async #getRW(route, date) {
