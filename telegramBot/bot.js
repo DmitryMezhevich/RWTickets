@@ -1,6 +1,5 @@
 // file: telegram_bot.js
 const TelegramBot = require('node-telegram-bot-api');
-const axios = require('axios');
 
 const helper = require('../helpers/helpers');
 
@@ -33,6 +32,9 @@ class Bot {
         // Шаг 1: Команда /start
         bot.onText(/\/start/, async (msg) => {
             const chatId = msg.chat.id;
+
+            this.#deleteUser(chatId);
+
             const options = {
                 reply_markup: {
                     inline_keyboard: [
@@ -57,17 +59,40 @@ class Bot {
             const chatId = query.message.chat.id;
 
             if (query.data.startsWith('route_')) {
+                this.#deleteUser(chatId);
                 const split = query.data.split('_');
                 const route = split[1] + '-' + split[2];
                 userData[chatId] = { route };
 
-                await bot.sendMessage(chatId, 'Напишите дату в формате: 12-06');
+                await bot.sendMessage(
+                    chatId,
+                    'Напишите дату в формате: 12-06 (дд-мм)'
+                );
             }
         });
 
         // Шаг 3: Получение даты от пользователя
         bot.on('message', async (msg) => {
             const chatId = msg.chat.id;
+
+            if (
+                msg.text.includes('/start') ||
+                msg.text.includes('/cancel') ||
+                msg.text.includes('/all_cancel')
+            ) {
+                return;
+            }
+
+            if (
+                !userData[chatId]?.route ||
+                userData[chatId]?.selectedTimes ||
+                userData[chatId]?.idInterval
+            ) {
+                return await bot.sendMessage(
+                    chatId,
+                    'Попробуйте запустить бота с начала.'
+                );
+            }
 
             if (userData[chatId] && !userData[chatId].date) {
                 const date = msg.text.trim();
@@ -76,7 +101,7 @@ class Bot {
                 if (!/^\d{2}-\d{2}$/.test(date)) {
                     return bot.sendMessage(
                         chatId,
-                        'Дата должна быть в формате: 12-06'
+                        'Дата должна быть в формате: 12-06 (дд-мм)'
                     );
                 }
 
@@ -101,8 +126,16 @@ class Bot {
 
                     // Форматируем кнопки времени: по две в строку
                     const rows = [];
-                    for (let i = 0; i < timeButtons.length; i += 2) {
-                        rows.push(timeButtons.slice(i, i + 2)); // Каждая строка содержит максимум 2 кнопки
+                    const linght = Math.round(timeButtons.length / 2);
+
+                    for (let i = 0; i < linght; i++) {
+                        rows.push([
+                            timeButtons[i],
+                            timeButtons[i + linght] || {
+                                text: '-',
+                                callback_data: '-',
+                            },
+                        ]);
                     }
 
                     // Добавляем кнопку подтверждения в отдельной строке по центру
@@ -124,7 +157,11 @@ class Bot {
                     bot.sendMessage(chatId, 'Выберите время:', options);
                 } catch (error) {
                     console.error(error);
-                    bot.sendMessage(chatId, 'Ошибка при запросе на сервер.');
+                    bot.sendMessage(
+                        chatId,
+                        'Ошибка при запросе на сервер. Поробуйте заново запустить бота.'
+                    );
+                    this.#deleteUser(chatId);
                 }
             }
         });
@@ -139,6 +176,13 @@ class Bot {
 
             // Проверяем, если пользователь выбирает время
             if (data.startsWith('time_')) {
+                if (!userData[chatId]?.date || userData[chatId]?.idInterval) {
+                    return await bot.sendMessage(
+                        chatId,
+                        'Попробуйте запустить бота с начала.'
+                    );
+                }
+
                 const selectedTime = data.split('_')[1]; // Извлекаем выбранное время
 
                 // Инициализируем выбранные кнопки, если еще нет
@@ -165,8 +209,16 @@ class Bot {
 
                 // Форматируем кнопки времени: по две в строку
                 const rows = [];
-                for (let i = 0; i < timeButtons.length; i += 2) {
-                    rows.push(timeButtons.slice(i, i + 2)); // Каждая строка содержит максимум 2 кнопки
+                const linght = Math.round(timeButtons.length / 2);
+
+                for (let i = 0; i < linght; i++) {
+                    rows.push([
+                        timeButtons[i],
+                        timeButtons[i + linght] || {
+                            text: '-',
+                            callback_data: '-',
+                        },
+                    ]);
                 }
 
                 // Добавляем кнопку подтверждения в отдельной строке по центру
@@ -193,47 +245,59 @@ class Bot {
 
             // Обрабатываем подтверждение выбора
             if (data === 'confirm') {
-                await bot.sendMessage(
-                    chatId,
-                    'Как только будут билеты, я скажу.'
-                );
-                if (userData[chatId].selectedTimes.length > 0) {
-                    userData[chatId].idInterval = helper.getDataRW(
-                        userData[chatId].route,
-                        userData[chatId].date,
-                        userData[chatId].selectedTimes,
-                        async (response) => {
-                            response.forEach(async (element) => {
-                                await bot.sendMessage(
-                                    chatId,
-                                    `Есть билет(-ы) на ${element}`
-                                );
-                            });
-                        }
+                if (!userData[chatId]?.date || userData[chatId]?.idInterval) {
+                    return await bot.sendMessage(
+                        chatId,
+                        'Попробуйте запустить бота с начала.'
                     );
-                } else {
-                    await bot.answerCallbackQuery(query.id, {
-                        text: 'Сделайте выбор!',
-                    });
+                }
+                try {
+                    if (userData[chatId]?.selectedTimes.length > 0) {
+                        await bot.sendMessage(
+                            chatId,
+                            'Как только будут билеты, я скажу.'
+                        );
+                        userData[chatId].idInterval = helper.getDataRW(
+                            userData[chatId].route,
+                            userData[chatId].date,
+                            userData[chatId].selectedTimes,
+                            async (response) => {
+                                response.forEach(async (element) => {
+                                    await bot.sendMessage(
+                                        chatId,
+                                        `Есть билет(-ы) на ${element}`
+                                    );
+                                    delete userData[chatId].countError;
+                                });
+                            }
+                        );
+                    } else {
+                        await bot.answerCallbackQuery(query.id, {
+                            text: 'Сделайте выбор!',
+                        });
+                    }
+                } catch (error) {
+                    console.error(error);
+                    if (!userData[chatId].countError) {
+                        userData[chatId].countError = 1;
+                    } else {
+                        userData[chatId].countError += 1;
+                    }
+
+                    if (userData[chatId].countError > 5) {
+                        bot.sendMessage(
+                            chatId,
+                            'Ошибка при во время прослушивания.'
+                        );
+                        this.#cancelSubscriptionOfUser(msg);
+                    }
                 }
             }
         });
 
         // Шаг 5: Кнопка отмены
         bot.onText(/\/cancel/, async (msg) => {
-            const chatId = msg.chat.id;
-
-            if (userData[chatId]) {
-                if (userData[chatId].idInterval) {
-                    clearInterval(userData[chatId].idInterval);
-                }
-
-                await bot.sendMessage(chatId, `Отписал.`);
-
-                delete userData[chatId];
-            } else {
-                await bot.sendMessage(chatId, `Советую запустить бот.`);
-            }
+            this.#cancelSubscriptionOfUser(msg);
         });
 
         bot.onText(/\/all_cancel/, async (msg) => {
@@ -250,9 +314,30 @@ class Bot {
 
                 await bot.sendMessage(chatId, `Отписал всех.`);
             } else {
-                await bot.sendMessage(chatId, `Советую запустить бот.`);
+                await bot.sendMessage(chatId, `Советую запустить бота.`);
             }
         });
+    }
+
+    async #cancelSubscriptionOfUser(msg) {
+        const chatId = msg.chat.id;
+
+        if (!userData[chatId]) {
+            await bot.sendMessage(chatId, `Советую запустить бота.`);
+            return;
+        }
+
+        this.#deleteUser(chatId);
+
+        await bot.sendMessage(chatId, `Отписал.`);
+    }
+
+    async #deleteUser(chatId) {
+        if (userData[chatId]?.idInterval) {
+            clearInterval(userData[chatId].idInterval);
+        }
+
+        delete userData[chatId];
     }
 }
 
